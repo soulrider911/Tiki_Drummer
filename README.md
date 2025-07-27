@@ -45,8 +45,8 @@ Pin 2  → Button (other side to GND, uses internal pull-up)
 Pin 3  → Eyes LED (anode, cathode through 220Ω resistor to GND)
 Pin 6  → NeoPixel Data Line
 Pin 7  → Servo Signal Wire
-Pin 10 → DFPlayer RX
-Pin 11 → DFPlayer TX
+Pin 10 → DFPlayer RX (use inline 1k ohm resistor)
+Pin 11 → DFPlayer TX 
 ```
 
 ### Power Requirements
