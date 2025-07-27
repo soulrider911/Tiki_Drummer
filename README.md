@@ -2,6 +2,11 @@
 
 A comprehensive Arduino-based control system for Walt Disney's Enchanted Tiki Room drummer animatronics, featuring synchronized audio, servo movement, NeoPixel lighting effects, and interactive button control.
 
+## Credits
+
+**Original Creator**: Dan Massey (MakerDan)  
+Special thanks to Dan Massey for creating the original code and concept for this Tiki Room drummer control system. This project builds upon his excellent foundation work.
+
 ## Features
 
 ### 🎵 Audio & Movement
