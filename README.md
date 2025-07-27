@@ -29,12 +29,13 @@ Special thanks to Dan Massey for creating the original code and concept for this
 ## Hardware Requirements
 
 ### Core Components
-- **Arduino Nano** (or compatible microcontroller)
-- **DFPlayer Mini MP3 Module** with SD card containing audio track
-- **Servo Motor** (for drummer arm movement)
-- **30+ NeoPixel LED Strip** (WS2812B/WS2811 compatible)
+- [**Arduino Nano**](https://a.co/d/dMQZr2u) (or compatible microcontroller)
+- [**DFPlayer Mini MP3 Module**](https://a.co/d/fasASgN) with SD card containing audio track
+- [**Servo Motor**](https://a.co/d/eXuSnGM) (for drummer arm movement)
+- [**16 NeoPixel Ring**](https://a.co/d/flh6MHF) (Main Led lighting in the Drum)
+- [**Optional NeoPixel LED Strip**](https://a.co/d/3B8d3e2) (WS2812B/WS2811 compatible)
 - **Push Button** (momentary, normally open)
-- **LED** (for eyes indicator)
+- [**Color Changing LED**](https://a.co/d/ijp2mKX) (for eyes)
 - **220Ω Resistor** (for eyes LED)
 
 ### Pin Connections
