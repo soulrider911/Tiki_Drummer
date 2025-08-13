@@ -67,10 +67,10 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + 
 // Ambient NeoPixel strip (separate) - change pin/count as needed
 #define AMBIENT_PIN 5
 #define NUM_PIXELS_AMBIENT 32
-#define AMBIENT_BRIGHTNESS 180         // 0-255
+#define AMBIENT_BRIGHTNESS 120         // 0-255
 #define AMBIENT_COLOR_R 255           // Soft warm white by default
-#define AMBIENT_COLOR_G 214
-#define AMBIENT_COLOR_B 170
+#define AMBIENT_COLOR_G 180
+#define AMBIENT_COLOR_B 60
 Adafruit_NeoPixel ambientStrip = Adafruit_NeoPixel(NUM_PIXELS_AMBIENT, AMBIENT_PIN, NEO_GRB + NEO_KHZ800);
 
 // LED diode setup - pin 3 for eyes indicator
@@ -100,10 +100,11 @@ float fadeStep = 0.02; // How much to increase brightness each frame
 // Deep ocean + teal palette
 uint32_t IDLE_COLOR_A = 0xDE35E6; // deep ocean
 uint32_t IDLE_COLOR_B = 0x00E6CF; // teal
+uint32_t IDLE_COLOR_C = 0xff6e00; // orange
 
 // Periods (ms)
-const uint32_t IDLE_BREATHE_MS = 4000;   // overall “breathing” cycle
-const uint32_t IDLE_DRIFT_MS   = 16000;  // how long the band takes to loop end-to-end
+const uint32_t IDLE_BREATHE_MS = 10000;   // overall “breathing” cycle
+const uint32_t IDLE_DRIFT_MS   = 18000;  // how long the band takes to loop end-to-end
 
 // Band softness/radius (as fraction of strip length)
 const float    IDLE_BAND_WIDTH = 0.35f;  // 0.2..0.5 works well; larger = softer, wider glow
@@ -442,8 +443,19 @@ void renderCalmIdle(Adafruit_NeoPixel &s) {
   const float breathe = lerp(IDLE_MIN_BRIGHT, IDLE_MAX_BRIGHT, easeInOutSine(tBreathe));
   const float center = tDrift * (N - 1);
   const float radius = max(1.0f, IDLE_BAND_WIDTH * (float)N);
-  const float paletteMix = 0.5f + 0.5f * cosf(2.0f * PI * (tBreathe + 0.25f));
-  const uint32_t baseColor = lerpColor(IDLE_COLOR_A, IDLE_COLOR_B, paletteMix);
+
+  // Tri-color palette cycle: A -> B -> C -> A using the breathing phase
+  float phase = tBreathe * 3.0f;         // 0..3
+  int seg = (int)phase;                  // 0,1,2
+  float ft = phase - (float)seg;         // 0..1 within segment
+  uint32_t baseColor;
+  if (seg == 0) {
+    baseColor = lerpColor(IDLE_COLOR_A, IDLE_COLOR_B, ft);
+  } else if (seg == 1) {
+    baseColor = lerpColor(IDLE_COLOR_B, IDLE_COLOR_C, ft);
+  } else {
+    baseColor = lerpColor(IDLE_COLOR_C, IDLE_COLOR_A, ft);
+  }
 
   for (int i = 0; i < N; ++i) {
     float d = fabsf((float)i - center);
