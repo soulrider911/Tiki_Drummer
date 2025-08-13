@@ -28,10 +28,19 @@ static const uint8_t PIN_MP3_RX = 10; // Connects to module's TX
 SoftwareSerial softwareSerial(PIN_MP3_RX, PIN_MP3_TX);
 DFRobotDFPlayerMini player;
 
-// NeoPixel setup - pin 6 for data, 16 LEDs
+// NeoPixel setup - primary drum strip on pin 6
 #define NEOPIXEL_PIN 6
-#define NUM_PIXELS 31
+#define NUM_PIXELS 16
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
+// Ambient NeoPixel strip (separate) - change pin/count as needed
+#define AMBIENT_PIN 5
+#define NUM_PIXELS_AMBIENT 32
+#define AMBIENT_BRIGHTNESS 64         // 0-255
+#define AMBIENT_COLOR_R 255           // Soft warm white by default
+#define AMBIENT_COLOR_G 180
+#define AMBIENT_COLOR_B 60
+Adafruit_NeoPixel ambientStrip = Adafruit_NeoPixel(NUM_PIXELS_AMBIENT, AMBIENT_PIN, NEO_GRB + NEO_KHZ800);
 
 // LED diode setup - pin 3 for eyes indicator
 #define LED_EYES 3
@@ -103,6 +112,10 @@ void updateIdleAnimation() {
   for (int i = 0; i < strip.numPixels(); i++) {
     strip.setPixelColor(i, strip.Color(0, 0, 0));
   }
+  // Clear ambient pixels as well
+  for (int i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
+  }
   
   // Light up pixels one at a time in a wave pattern
   int waveLength = 20; // Number of pixels in the wave
@@ -122,9 +135,16 @@ void updateIdleAnimation() {
     uint8_t b = (color & 0xFF) * waveBrightness * idleFadeBrightness;
     
     strip.setPixelColor(pixelIndex, strip.Color(r, g, b));
+
+    // Mirror to ambient strip using proportional index wrap
+    if (ambientStrip.numPixels() > 0) {
+      int ambientIndex = (idleWavePosition + i) % ambientStrip.numPixels();
+      ambientStrip.setPixelColor(ambientIndex, ambientStrip.Color(r, g, b));
+    }
   }
   
   strip.show();
+  ambientStrip.show();
   
   // Update wave position and color
   idleWavePosition++;
@@ -146,6 +166,12 @@ void cleanupShow() {
   }
   strip.show();
   delay(50);
+  
+  // Turn off ambient strip
+  for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
+  }
+  ambientStrip.show();
   
   // Turn off eyes LED
   digitalWrite(LED_EYES, LOW);
@@ -203,6 +229,15 @@ void setup() {
   strip.setBrightness(128); // Set global brightness (0-255, default is 255)
   strip.show(); // Initialize all pixels to 'off'
   
+  // Initialize Ambient NeoPixel strip
+  ambientStrip.begin();
+  ambientStrip.setBrightness(AMBIENT_BRIGHTNESS);
+  // Ensure ambient is off at boot
+  for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
+  }
+  ambientStrip.show();
+  
   // Initialize serial communication for DFPlayer Mini
   softwareSerial.begin(9600);
   player.begin(softwareSerial);
@@ -253,6 +288,12 @@ void runTikiDrummersShow() {
   // Start the single audio track
   player.play(1);
   delay(100); // Give DFPlayer time to start
+  
+  // Turn ON ambient strip for the duration of intro, first and second halves
+  for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(AMBIENT_COLOR_R, AMBIENT_COLOR_G, AMBIENT_COLOR_B));
+  }
+  ambientStrip.show();
   
   // INTRODUCTION SEQUENCE - Brief intro with white lights
   if (!showRunning) { cleanupShow(); return; } // Check if show was stopped
@@ -339,6 +380,12 @@ void runTikiDrummersShow() {
   
   // Turn off LEDs
   lightning(strip.Color(0, 0, 0), 1);
+  
+  // Turn OFF ambient just before lightning event starts
+  for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
+  }
+  ambientStrip.show();
   
   // LIGHTNING EFFECT
   for (int x = 0; x < lightningFlashes && showRunning; x++) { // Use timing variable
