@@ -61,16 +61,16 @@ DFRobotDFPlayerMini player;
 
 // NeoPixel setup - primary drum strip on pin 6
 #define NEOPIXEL_PIN 6
-#define NUM_PIXELS 18
+#define NUM_PIXELS 19
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 // Ambient NeoPixel strip (separate) - change pin/count as needed
 #define AMBIENT_PIN 5
 #define NUM_PIXELS_AMBIENT 32
-#define AMBIENT_BRIGHTNESS 64         // 0-255
+#define AMBIENT_BRIGHTNESS 180         // 0-255
 #define AMBIENT_COLOR_R 255           // Soft warm white by default
-#define AMBIENT_COLOR_G 180
-#define AMBIENT_COLOR_B 60
+#define AMBIENT_COLOR_G 214
+#define AMBIENT_COLOR_B 170
 Adafruit_NeoPixel ambientStrip = Adafruit_NeoPixel(NUM_PIXELS_AMBIENT, AMBIENT_PIN, NEO_GRB + NEO_KHZ800);
 
 // LED diode setup - pin 3 for eyes indicator
