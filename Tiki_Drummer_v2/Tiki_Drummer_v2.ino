@@ -22,6 +22,37 @@
 #include <Adafruit_NeoPixel.h>
 #include "Button2.h"
 
+
+#include <math.h>
+
+// ==== Calm Idle Helpers (added) ====
+static inline float easeInOutSine(float t) {
+  return 0.5f - 0.5f * cosf(2.0f * PI * t);
+}
+static inline float fractf(float x) {
+  return x - floorf(x);
+}
+static inline float lerp(float a, float b, float t) {
+  return a + (b - a) * t;
+}
+uint32_t lerpColor(uint32_t c1, uint32_t c2, float t) {
+  uint8_t r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
+  uint8_t r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
+  uint8_t r = (uint8_t)roundf(lerp(r1, r2, t));
+  uint8_t g = (uint8_t)roundf(lerp(g1, g2, t));
+  uint8_t b = (uint8_t)roundf(lerp(b1, b2, t));
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+}
+uint32_t scaleColor(uint32_t c, float k) {
+  uint8_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+  r = (uint8_t)roundf(r * k);
+  g = (uint8_t)roundf(g * k);
+  b = (uint8_t)roundf(b * k);
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+}
+// ==== End Calm Idle Helpers ====
+
+
 // DFPlayer Mini setup - pins 10 and 11 for communication
 static const uint8_t PIN_MP3_TX = 11; // Connects to module's RX
 static const uint8_t PIN_MP3_RX = 10; // Connects to module's TX
@@ -30,7 +61,7 @@ DFRobotDFPlayerMini player;
 
 // NeoPixel setup - primary drum strip on pin 6
 #define NEOPIXEL_PIN 6
-#define NUM_PIXELS 16
+#define NUM_PIXELS 18
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 // Ambient NeoPixel strip (separate) - change pin/count as needed
@@ -64,6 +95,25 @@ float idleFadeBrightness = 0.0;
 bool idleFadeActive = false;
 float fadeStep = 0.02; // How much to increase brightness each frame
 
+
+// ---- Calm Idle Configuration (added) ----
+// Deep ocean + teal palette
+uint32_t IDLE_COLOR_A = 0xDE35E6; // deep ocean
+uint32_t IDLE_COLOR_B = 0x00E6CF; // teal
+
+// Periods (ms)
+const uint32_t IDLE_BREATHE_MS = 4000;   // overall “breathing” cycle
+const uint32_t IDLE_DRIFT_MS   = 16000;  // how long the band takes to loop end-to-end
+
+// Band softness/radius (as fraction of strip length)
+const float    IDLE_BAND_WIDTH = 0.35f;  // 0.2..0.5 works well; larger = softer, wider glow
+
+// Floor/ceiling brightness (0..1) to keep it calm
+const float    IDLE_MIN_BRIGHT = 0.4f;
+const float    IDLE_MAX_BRIGHT = 0.9f;
+
+unsigned long  idleStartMillis = 0;
+// ---- End Calm Idle Configuration (added) ----
 // Servo setup for single drummer
 Servo drummerServo;
 int pos = 0;
@@ -99,60 +149,11 @@ int finaleArmDelay = 1000;         // How long to wait for arm to reach final po
 
 // Idle animation function - lights up pixels one at a time with fade-in
 void updateIdleAnimation() {
-  // Handle fade-in effect when entering idle mode
-  if (idleFadeActive && idleFadeBrightness < 0.3) {
-    idleFadeBrightness += fadeStep;
-    if (idleFadeBrightness >= 0.3) {
-      idleFadeBrightness = 0.3;
-      idleFadeActive = false; // Fade complete
-    }
-  }
-  
-  // Clear all pixels first
-  for (int i = 0; i < strip.numPixels(); i++) {
-    strip.setPixelColor(i, strip.Color(0, 0, 0));
-  }
-  // Clear ambient pixels as well
-  for (int i = 0; i < ambientStrip.numPixels(); i++) {
-    ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
-  }
-  
-  // Light up pixels one at a time in a wave pattern
-  int waveLength = 20; // Number of pixels in the wave
-  for (int i = 0; i < waveLength; i++) {
-    int pixelIndex = (idleWavePosition + i) % strip.numPixels();
-    
-    // Calculate rainbow color for this pixel
-    uint8_t wheelPos = (idleColorIndex + (i * 32)) & 255;
-    uint32_t color = Wheel(wheelPos);
-    
-    // Calculate brightness fade across the wave
-    float waveBrightness = sin((float)i / (waveLength - 1) * PI);
-    
-    // Apply both wave brightness and fade-in brightness
-    uint8_t r = ((color >> 16) & 0xFF) * waveBrightness * idleFadeBrightness;
-    uint8_t g = ((color >> 8) & 0xFF) * waveBrightness * idleFadeBrightness;
-    uint8_t b = (color & 0xFF) * waveBrightness * idleFadeBrightness;
-    
-    strip.setPixelColor(pixelIndex, strip.Color(r, g, b));
-
-    // Mirror to ambient strip using proportional index wrap
-    if (ambientStrip.numPixels() > 0) {
-      int ambientIndex = (idleWavePosition + i) % ambientStrip.numPixels();
-      ambientStrip.setPixelColor(ambientIndex, ambientStrip.Color(r, g, b));
-    }
-  }
-  
-  strip.show();
-  ambientStrip.show();
-  
-  // Update wave position and color
-  idleWavePosition++;
-  if (idleWavePosition >= strip.numPixels()) {
-    idleWavePosition = 0;
-    idleColorIndex += 16; // Shift color for next cycle
-  }
+// Calm idle: render on both strips
+renderCalmIdle(strip);
+renderCalmIdle(ambientStrip);
 }
+
 
 // Cleanup function to ensure proper state reset
 void cleanupShow() {
@@ -235,7 +236,9 @@ void setup() {
   // Ensure ambient is off at boot
   for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
     ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
-  }
+  // Initialize calm idle timer
+  idleStartMillis = millis();
+}
   ambientStrip.show();
   
   // Initialize serial communication for DFPlayer Mini
@@ -426,6 +429,37 @@ void stopShow() {
   // Use the centralized cleanup function
   cleanupShow();
 }
+
+// ---- Calm Idle Renderer (added) ----
+void renderCalmIdle(Adafruit_NeoPixel &s) {
+  const int N = s.numPixels();
+  if (N <= 0) return;
+
+  const unsigned long now = millis();
+  const float tBreathe = fmodf((now - idleStartMillis), (float)IDLE_BREATHE_MS) / (float)IDLE_BREATHE_MS; // 0..1
+  const float tDrift   = fmodf((now - idleStartMillis), (float)IDLE_DRIFT_MS)   / (float)IDLE_DRIFT_MS;   // 0..1
+
+  const float breathe = lerp(IDLE_MIN_BRIGHT, IDLE_MAX_BRIGHT, easeInOutSine(tBreathe));
+  const float center = tDrift * (N - 1);
+  const float radius = max(1.0f, IDLE_BAND_WIDTH * (float)N);
+  const float paletteMix = 0.5f + 0.5f * cosf(2.0f * PI * (tBreathe + 0.25f));
+  const uint32_t baseColor = lerpColor(IDLE_COLOR_A, IDLE_COLOR_B, paletteMix);
+
+  for (int i = 0; i < N; ++i) {
+    float d = fabsf((float)i - center);
+    d = min(d, (float)N - d);
+    float w = 0.0f;
+    if (d < radius) {
+      float x = d / radius;
+      w = 0.5f * (1.0f + cosf(x * PI));
+    }
+    float k = breathe * w;
+    uint32_t c = scaleColor(baseColor, k);
+    s.setPixelColor(i, c);
+  }
+  s.show();
+}
+// ---- End Calm Idle Renderer (added) ----
 
 // LED CONTROL FUNCTIONS
 
