@@ -313,6 +313,9 @@ void runTikiDrummersShow() {
   // Turn off intro lights
   lightning(strip.Color(0, 0, 0), 1);
   
+  // Prime show LEDs immediately after intro to avoid a blackout before preShowDelay
+  chantStep(ledSpeed1stHalf, 0);
+  
   // Interruptible delay before show
   for (int i = 0; i < preShowDelay && showRunning; i += 100) {
     delay(100);
@@ -330,6 +333,11 @@ void runTikiDrummersShow() {
   for (int x = 0; x < firstHalfCycles && showRunning; x++) { // Use timing variable
     if (!showRunning) { cleanupShow(); return; } // Check if show was stopped
     
+    // Early LED update at the start of the loop to avoid waiting for servo movement
+    if (x % ledUpdateFreq1stHalf == 0 && showRunning) { // Use timing variable
+      chantStep(ledSpeed1stHalf, x * ledUpdateFreq1stHalf); // Use timing variables
+    }
+    
     // Move drummer arm (slower beat)
     for (pos = servoMin; pos <= servoMax && showRunning; pos += 40) {
       drummerServo.write(pos);
@@ -340,11 +348,6 @@ void runTikiDrummersShow() {
       drummerServo.write(pos);
       delay(20);
       button.loop(); // Check for button presses during servo movement
-    }
-    
-    // Update LED colors during drummer arm movement
-    if (x % ledUpdateFreq1stHalf == 0 && showRunning) { // Use timing variable
-      chantStep(ledSpeed1stHalf, x * ledUpdateFreq1stHalf); // Use timing variables
     }
   }
   if (!showRunning) { cleanupShow(); return; }
@@ -363,6 +366,11 @@ void runTikiDrummersShow() {
   for (int x = 0; x < secondHalfCycles && showRunning; x++) { // Use timing variable
     if (!showRunning) { cleanupShow(); return; } // Check if show was stopped
     
+    // Early LED update at the start of the loop to avoid waiting for servo movement
+    if (x % ledUpdateFreq2ndHalf == 0 && showRunning) { // Use timing variable
+      chantStep(ledSpeed2ndHalf, x * ledUpdateFreq2ndHalf); // Use timing variables
+    }
+    
     // Move drummer arm (faster beat)
     for (pos = servoMin; pos <= servoMax && showRunning; pos += 60) {
       drummerServo.write(pos);
@@ -373,11 +381,6 @@ void runTikiDrummersShow() {
       drummerServo.write(pos);
       delay(20);
       button.loop(); // Check for button presses during servo movement
-    }
-    
-    // Update LED colors during drummer arm movement
-    if (x % ledUpdateFreq2ndHalf == 0 && showRunning) { // Use timing variable
-      chantStep(ledSpeed2ndHalf, x * ledUpdateFreq2ndHalf); // Use timing variables
     }
   }
   if (!showRunning) { cleanupShow(); return; }
