@@ -160,7 +160,7 @@ renderCalmIdle(ambientStrip);
 void cleanupShow() {
   // Stop audio playback and reset player
   player.stop();
-  delay(100); // Give DFPlayer time to process stop command
+  delay(10); // Short processing time; keep UI responsive
   
   // Turn off all NeoPixel LEDs and refresh strip
   for(uint16_t i = 0; i < strip.numPixels(); i++) {
@@ -206,14 +206,7 @@ void buttonHandler(Button2& btn) {
   } else {
     // Signal to stop the show (let the show function handle cleanup)
     showRunning = false;
-    
-    // Immediate visual feedback that button was pressed during show
-    for (int i = 0; i < 3; i++) {
-      digitalWrite(LED_EYES, HIGH);
-      delay(100);
-      digitalWrite(LED_EYES, LOW);
-      delay(100);
-    }
+    // Remove blocking blink feedback to allow immediate stop
   }
 }
 
@@ -224,7 +217,8 @@ void setup() {
   
   // Initialize Button2 with callback handler
   button.begin(BUTTON_PIN);
-  button.setTapHandler(buttonHandler);
+  // Trigger immediately on press for faster stop/start response
+  button.setPressedHandler(buttonHandler);
   
   // Initialize NeoPixel strip
   strip.begin();
@@ -303,9 +297,9 @@ void runTikiDrummersShow() {
   if (!showRunning) { cleanupShow(); return; } // Check if show was stopped
   intro(strip.Color(255, 255, 255), 5);
   
-  // Interruptible delay for intro lights
-  for (int i = 0; i < introLightDuration && showRunning; i += 100) {
-    delay(100);
+  // Interruptible delay for intro lights (finer granularity for faster stop)
+  for (int i = 0; i < introLightDuration && showRunning; i += 20) {
+    delay(20);
     button.loop(); // Check for button presses during delay
   }
   if (!showRunning) { cleanupShow(); return; }
@@ -316,9 +310,9 @@ void runTikiDrummersShow() {
   // Prime show LEDs immediately after intro to avoid a blackout before preShowDelay
   chantStep(ledSpeed1stHalf, 0);
   
-  // Interruptible delay before show
-  for (int i = 0; i < preShowDelay && showRunning; i += 100) {
-    delay(100);
+  // Interruptible delay before show (finer granularity for faster stop)
+  for (int i = 0; i < preShowDelay && showRunning; i += 20) {
+    delay(20);
     button.loop(); // Check for button presses during delay
   }
   if (!showRunning) { cleanupShow(); return; }
@@ -355,9 +349,9 @@ void runTikiDrummersShow() {
   // Brief pause and LED reset between halves
   lightning(strip.Color(0, 0, 0), 1);
   
-  // Interruptible delay between halves
-  for (int i = 0; i < betweenHalvesDelay && showRunning; i += 100) {
-    delay(100);
+  // Interruptible delay between halves (finer granularity for faster stop)
+  for (int i = 0; i < betweenHalvesDelay && showRunning; i += 20) {
+    delay(20);
     button.loop(); // Check for button presses during delay
   }
   if (!showRunning) { cleanupShow(); return; }
@@ -410,9 +404,9 @@ void runTikiDrummersShow() {
   // Set drummer arm to final position
   drummerServo.write(97);
   
-  // Interruptible delay for finale
-  for (int i = 0; i < finaleArmDelay && showRunning; i += 100) {
-    delay(100);
+  // Interruptible delay for finale (finer granularity for faster stop)
+  for (int i = 0; i < finaleArmDelay && showRunning; i += 20) {
+    delay(20);
     button.loop(); // Check for button presses during delay
   }
   if (!showRunning) { cleanupShow(); return; }
