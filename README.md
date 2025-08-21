@@ -16,9 +16,10 @@ Special thanks to Dan Massey for creating the original code and concept for this
 - **Two-Phase Show**: Slower first half, faster second half drumming sequences
 
 ### 💡 LED Effects
-- **NeoPixel Strip**: 31 addressable RGB LEDs with multiple animation modes
+- **Main NeoPixel Strip**: Addressable RGB LEDs with multiple animation modes
+- **Ambient NeoPixel Strip (New)**: Second WS2812 strip on its own pin for ambient lighting
 - **Show Effects**: Introduction lighting, color cycling, lightning effects, and finale sequences
-- **Idle Animation**: Beautiful 20-pixel rainbow wave that continuously flows across the strip
+- **Idle Animation**: Beautiful 20-pixel rainbow wave that continuously flows across both strips
 - **Eyes LED**: Simple indicator LED that shows when the show is active
 
 ### 🎮 Interactive Control
@@ -44,6 +45,7 @@ Special thanks to Dan Massey for creating the original code and concept for this
 Pin 2  → Button (other side to GND, uses internal pull-up)
 Pin 3  → Eyes LED (anode, cathode through 220Ω resistor to GND)
 Pin 6  → NeoPixel Data Line
+Pin 5  → Ambient NeoPixel Data Line (WS2812/WS2811)
 Pin 7  → Servo Signal Wire
 Pin 10 → DFPlayer RX (use inline 1k ohm resistor)
 Pin 11 → DFPlayer TX 
@@ -69,7 +71,7 @@ Install these libraries through the Arduino IDE Library Manager:
 1. Open Arduino IDE
 2. Go to **Sketch → Include Library → Manage Libraries**
 3. Search for and install each required library
-4. Upload the `Tiki_Drummers_Unified_working.ino` sketch to your Arduino
+4. Upload the `Tiki_Drummer_v2/Tiki_Drummer_v2.ino` sketch to your Arduino
 
 ## Configuration
 
@@ -89,8 +91,15 @@ int finaleArmDelay = 1000;         // Final arm position delay
 
 ### LED Configuration
 ```cpp
-#define NUM_PIXELS 31              // Number of NeoPixels in your strip
+// Main drum strip
+#define NEOPIXEL_PIN 6
+#define NUM_PIXELS 31
 strip.setBrightness(128);          // Global brightness (0-255)
+
+// Ambient strip (new)
+#define AMBIENT_PIN 5
+#define NUM_PIXELS_AMBIENT 30
+#define AMBIENT_BRIGHTNESS 64      // 0-255 (idle/show ambient brightness)
 ```
 
 ### Servo Calibration
@@ -124,18 +133,20 @@ int servoMax = 1900;               // Maximum servo position
 2. **First Half**: Slower drumming with color cycling
 3. **Transition**: Brief pause and LED reset
 4. **Second Half**: Faster drumming with rapid color changes
-5. **Lightning Effect**: 40 rapid white flashes
+5. **Lightning Effect**: 40 rapid white flashes (ambient strip turns OFF right before this effect)
 6. **Finale**: Final arm position and LED shutdown
 
 ## Customization
 
 ### Idle Animation
-The idle mode features a 20-pixel rainbow wave. Modify these parameters:
+The idle mode features a 20-pixel rainbow wave and now mirrors across both the main and ambient strips. Modify these parameters:
 ```cpp
 int waveLength = 20;               // Number of pixels in wave
 int idleAnimationDelay = 150;      // Animation update speed (ms)
 float fadeStep = 0.02;             // Fade-in speed
 ```
+
+Tip: Adjust `AMBIENT_BRIGHTNESS` if you want the ambient strip dimmer/brighter during idle.
 
 ### Color Effects
 The system uses a color wheel function for smooth rainbow transitions. The `Wheel()` function generates colors from 0-255 for seamless color cycling.

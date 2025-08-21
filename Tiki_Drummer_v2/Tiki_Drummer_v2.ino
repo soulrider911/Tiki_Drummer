@@ -22,16 +22,56 @@
 #include <Adafruit_NeoPixel.h>
 #include "Button2.h"
 
+
+#include <math.h>
+
+// ==== Calm Idle Helpers (added) ====
+static inline float easeInOutSine(float t) {
+  return 0.5f - 0.5f * cosf(2.0f * PI * t);
+}
+static inline float fractf(float x) {
+  return x - floorf(x);
+}
+static inline float lerp(float a, float b, float t) {
+  return a + (b - a) * t;
+}
+uint32_t lerpColor(uint32_t c1, uint32_t c2, float t) {
+  uint8_t r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
+  uint8_t r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
+  uint8_t r = (uint8_t)roundf(lerp(r1, r2, t));
+  uint8_t g = (uint8_t)roundf(lerp(g1, g2, t));
+  uint8_t b = (uint8_t)roundf(lerp(b1, b2, t));
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+}
+uint32_t scaleColor(uint32_t c, float k) {
+  uint8_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+  r = (uint8_t)roundf(r * k);
+  g = (uint8_t)roundf(g * k);
+  b = (uint8_t)roundf(b * k);
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+}
+// ==== End Calm Idle Helpers ====
+
+
 // DFPlayer Mini setup - pins 10 and 11 for communication
 static const uint8_t PIN_MP3_TX = 11; // Connects to module's RX
 static const uint8_t PIN_MP3_RX = 10; // Connects to module's TX
 SoftwareSerial softwareSerial(PIN_MP3_RX, PIN_MP3_TX);
 DFRobotDFPlayerMini player;
 
-// NeoPixel setup - pin 6 for data, 16 LEDs
+// NeoPixel setup - primary drum strip on pin 6
 #define NEOPIXEL_PIN 6
-#define NUM_PIXELS 31
+#define NUM_PIXELS 16 //19 for Original
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
+// Ambient NeoPixel strip (separate) - change pin/count as needed
+#define AMBIENT_PIN 5
+#define NUM_PIXELS_AMBIENT 28
+#define AMBIENT_BRIGHTNESS 200       // 0-255
+#define AMBIENT_COLOR_R 255           // Soft warm white by default
+#define AMBIENT_COLOR_G 180
+#define AMBIENT_COLOR_B 60
+Adafruit_NeoPixel ambientStrip = Adafruit_NeoPixel(NUM_PIXELS_AMBIENT, AMBIENT_PIN, NEO_GRB + NEO_KHZ800);
 
 // LED diode setup - pin 3 for eyes indicator
 #define LED_EYES 3
@@ -55,6 +95,26 @@ float idleFadeBrightness = 0.0;
 bool idleFadeActive = false;
 float fadeStep = 0.02; // How much to increase brightness each frame
 
+
+// ---- Calm Idle Configuration (added) ----
+// Deep ocean + teal palette
+uint32_t IDLE_COLOR_A = 0xDE35E6; // deep ocean
+uint32_t IDLE_COLOR_B = 0xff6e00; // orange
+uint32_t IDLE_COLOR_C = 0xd000ff; // purple
+
+// Periods (ms)
+const uint32_t IDLE_BREATHE_MS = 10000;   // overall “breathing” cycle
+const uint32_t IDLE_DRIFT_MS   = 10000;  // how long the band takes to loop end-to-end
+
+// Band softness/radius (as fraction of strip length)
+const float    IDLE_BAND_WIDTH = 0.4f;  // 0.2..0.5 works well; larger = softer, wider glow
+
+// Floor/ceiling brightness (0..1) to keep it calm
+const float    IDLE_MIN_BRIGHT = 0.6f;
+const float    IDLE_MAX_BRIGHT = 0.9f;
+
+unsigned long  idleStartMillis = 0;
+// ---- End Calm Idle Configuration (added) ----
 // Servo setup for single drummer
 Servo drummerServo;
 int pos = 0;
@@ -90,55 +150,17 @@ int finaleArmDelay = 1000;         // How long to wait for arm to reach final po
 
 // Idle animation function - lights up pixels one at a time with fade-in
 void updateIdleAnimation() {
-  // Handle fade-in effect when entering idle mode
-  if (idleFadeActive && idleFadeBrightness < 0.3) {
-    idleFadeBrightness += fadeStep;
-    if (idleFadeBrightness >= 0.3) {
-      idleFadeBrightness = 0.3;
-      idleFadeActive = false; // Fade complete
-    }
-  }
-  
-  // Clear all pixels first
-  for (int i = 0; i < strip.numPixels(); i++) {
-    strip.setPixelColor(i, strip.Color(0, 0, 0));
-  }
-  
-  // Light up pixels one at a time in a wave pattern
-  int waveLength = 20; // Number of pixels in the wave
-  for (int i = 0; i < waveLength; i++) {
-    int pixelIndex = (idleWavePosition + i) % strip.numPixels();
-    
-    // Calculate rainbow color for this pixel
-    uint8_t wheelPos = (idleColorIndex + (i * 32)) & 255;
-    uint32_t color = Wheel(wheelPos);
-    
-    // Calculate brightness fade across the wave
-    float waveBrightness = sin((float)i / (waveLength - 1) * PI);
-    
-    // Apply both wave brightness and fade-in brightness
-    uint8_t r = ((color >> 16) & 0xFF) * waveBrightness * idleFadeBrightness;
-    uint8_t g = ((color >> 8) & 0xFF) * waveBrightness * idleFadeBrightness;
-    uint8_t b = (color & 0xFF) * waveBrightness * idleFadeBrightness;
-    
-    strip.setPixelColor(pixelIndex, strip.Color(r, g, b));
-  }
-  
-  strip.show();
-  
-  // Update wave position and color
-  idleWavePosition++;
-  if (idleWavePosition >= strip.numPixels()) {
-    idleWavePosition = 0;
-    idleColorIndex += 16; // Shift color for next cycle
-  }
+// Calm idle: render on both strips
+renderCalmIdle(strip);
+renderCalmIdle(ambientStrip);
 }
+
 
 // Cleanup function to ensure proper state reset
 void cleanupShow() {
   // Stop audio playback and reset player
   player.stop();
-  delay(100); // Give DFPlayer time to process stop command
+  delay(10); // Short processing time; keep UI responsive
   
   // Turn off all NeoPixel LEDs and refresh strip
   for(uint16_t i = 0; i < strip.numPixels(); i++) {
@@ -146,6 +168,12 @@ void cleanupShow() {
   }
   strip.show();
   delay(50);
+  
+  // Turn off ambient strip
+  for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
+  }
+  ambientStrip.show();
   
   // Turn off eyes LED
   digitalWrite(LED_EYES, LOW);
@@ -178,14 +206,7 @@ void buttonHandler(Button2& btn) {
   } else {
     // Signal to stop the show (let the show function handle cleanup)
     showRunning = false;
-    
-    // Immediate visual feedback that button was pressed during show
-    for (int i = 0; i < 3; i++) {
-      digitalWrite(LED_EYES, HIGH);
-      delay(100);
-      digitalWrite(LED_EYES, LOW);
-      delay(100);
-    }
+    // Remove blocking blink feedback to allow immediate stop
   }
 }
 
@@ -196,12 +217,24 @@ void setup() {
   
   // Initialize Button2 with callback handler
   button.begin(BUTTON_PIN);
-  button.setTapHandler(buttonHandler);
+  // Trigger immediately on press for faster stop/start response
+  button.setPressedHandler(buttonHandler);
   
   // Initialize NeoPixel strip
   strip.begin();
   strip.setBrightness(128); // Set global brightness (0-255, default is 255)
   strip.show(); // Initialize all pixels to 'off'
+  
+  // Initialize Ambient NeoPixel strip
+  ambientStrip.begin();
+  ambientStrip.setBrightness(AMBIENT_BRIGHTNESS);
+  // Ensure ambient is off at boot
+  for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
+  // Initialize calm idle timer
+  idleStartMillis = millis();
+}
+  ambientStrip.show();
   
   // Initialize serial communication for DFPlayer Mini
   softwareSerial.begin(9600);
@@ -254,13 +287,19 @@ void runTikiDrummersShow() {
   player.play(1);
   delay(100); // Give DFPlayer time to start
   
+  // Turn ON ambient strip for the duration of intro, first and second halves
+  for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(AMBIENT_COLOR_R, AMBIENT_COLOR_G, AMBIENT_COLOR_B));
+  }
+  ambientStrip.show();
+  
   // INTRODUCTION SEQUENCE - Brief intro with white lights
   if (!showRunning) { cleanupShow(); return; } // Check if show was stopped
   intro(strip.Color(255, 255, 255), 5);
   
-  // Interruptible delay for intro lights
-  for (int i = 0; i < introLightDuration && showRunning; i += 100) {
-    delay(100);
+  // Interruptible delay for intro lights (finer granularity for faster stop)
+  for (int i = 0; i < introLightDuration && showRunning; i += 20) {
+    delay(20);
     button.loop(); // Check for button presses during delay
   }
   if (!showRunning) { cleanupShow(); return; }
@@ -268,9 +307,12 @@ void runTikiDrummersShow() {
   // Turn off intro lights
   lightning(strip.Color(0, 0, 0), 1);
   
-  // Interruptible delay before show
-  for (int i = 0; i < preShowDelay && showRunning; i += 100) {
-    delay(100);
+  // Prime show LEDs immediately after intro to avoid a blackout before preShowDelay
+  chantStep(ledSpeed1stHalf, 0);
+  
+  // Interruptible delay before show (finer granularity for faster stop)
+  for (int i = 0; i < preShowDelay && showRunning; i += 20) {
+    delay(20);
     button.loop(); // Check for button presses during delay
   }
   if (!showRunning) { cleanupShow(); return; }
@@ -285,6 +327,11 @@ void runTikiDrummersShow() {
   for (int x = 0; x < firstHalfCycles && showRunning; x++) { // Use timing variable
     if (!showRunning) { cleanupShow(); return; } // Check if show was stopped
     
+    // Early LED update at the start of the loop to avoid waiting for servo movement
+    if (x % ledUpdateFreq1stHalf == 0 && showRunning) { // Use timing variable
+      chantStep(ledSpeed1stHalf, x * ledUpdateFreq1stHalf); // Use timing variables
+    }
+    
     // Move drummer arm (slower beat)
     for (pos = servoMin; pos <= servoMax && showRunning; pos += 40) {
       drummerServo.write(pos);
@@ -296,20 +343,15 @@ void runTikiDrummersShow() {
       delay(20);
       button.loop(); // Check for button presses during servo movement
     }
-    
-    // Update LED colors during drummer arm movement
-    if (x % ledUpdateFreq1stHalf == 0 && showRunning) { // Use timing variable
-      chantStep(ledSpeed1stHalf, x * ledUpdateFreq1stHalf); // Use timing variables
-    }
   }
   if (!showRunning) { cleanupShow(); return; }
   
   // Brief pause and LED reset between halves
   lightning(strip.Color(0, 0, 0), 1);
   
-  // Interruptible delay between halves
-  for (int i = 0; i < betweenHalvesDelay && showRunning; i += 100) {
-    delay(100);
+  // Interruptible delay between halves (finer granularity for faster stop)
+  for (int i = 0; i < betweenHalvesDelay && showRunning; i += 20) {
+    delay(20);
     button.loop(); // Check for button presses during delay
   }
   if (!showRunning) { cleanupShow(); return; }
@@ -317,6 +359,11 @@ void runTikiDrummersShow() {
   // SECOND HALF - Faster drum beat with faster color cycling
   for (int x = 0; x < secondHalfCycles && showRunning; x++) { // Use timing variable
     if (!showRunning) { cleanupShow(); return; } // Check if show was stopped
+    
+    // Early LED update at the start of the loop to avoid waiting for servo movement
+    if (x % ledUpdateFreq2ndHalf == 0 && showRunning) { // Use timing variable
+      chantStep(ledSpeed2ndHalf, x * ledUpdateFreq2ndHalf); // Use timing variables
+    }
     
     // Move drummer arm (faster beat)
     for (pos = servoMin; pos <= servoMax && showRunning; pos += 60) {
@@ -329,16 +376,17 @@ void runTikiDrummersShow() {
       delay(20);
       button.loop(); // Check for button presses during servo movement
     }
-    
-    // Update LED colors during drummer arm movement
-    if (x % ledUpdateFreq2ndHalf == 0 && showRunning) { // Use timing variable
-      chantStep(ledSpeed2ndHalf, x * ledUpdateFreq2ndHalf); // Use timing variables
-    }
   }
   if (!showRunning) { cleanupShow(); return; }
   
   // Turn off LEDs
   lightning(strip.Color(0, 0, 0), 1);
+  
+  // Turn OFF ambient just before lightning event starts
+  for (uint16_t i = 0; i < ambientStrip.numPixels(); i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(0, 0, 0));
+  }
+  ambientStrip.show();
   
   // LIGHTNING EFFECT
   for (int x = 0; x < lightningFlashes && showRunning; x++) { // Use timing variable
@@ -356,9 +404,9 @@ void runTikiDrummersShow() {
   // Set drummer arm to final position
   drummerServo.write(97);
   
-  // Interruptible delay for finale
-  for (int i = 0; i < finaleArmDelay && showRunning; i += 100) {
-    delay(100);
+  // Interruptible delay for finale (finer granularity for faster stop)
+  for (int i = 0; i < finaleArmDelay && showRunning; i += 20) {
+    delay(20);
     button.loop(); // Check for button presses during delay
   }
   if (!showRunning) { cleanupShow(); return; }
@@ -379,6 +427,48 @@ void stopShow() {
   // Use the centralized cleanup function
   cleanupShow();
 }
+
+// ---- Calm Idle Renderer (added) ----
+void renderCalmIdle(Adafruit_NeoPixel &s) {
+  const int N = s.numPixels();
+  if (N <= 0) return;
+
+  const unsigned long now = millis();
+  const float tBreathe = fmodf((now - idleStartMillis), (float)IDLE_BREATHE_MS) / (float)IDLE_BREATHE_MS; // 0..1
+  const float tDrift   = fmodf((now - idleStartMillis), (float)IDLE_DRIFT_MS)   / (float)IDLE_DRIFT_MS;   // 0..1
+
+  const float breathe = lerp(IDLE_MIN_BRIGHT, IDLE_MAX_BRIGHT, easeInOutSine(tBreathe));
+  const float center = tDrift * (N - 1);
+  const float radius = max(1.0f, IDLE_BAND_WIDTH * (float)N);
+
+  // Tri-color palette cycle: A -> B -> C -> A using the breathing phase
+  float phase = tBreathe * 3.0f;         // 0..3
+  int seg = (int)phase;                  // 0,1,2
+  float ft = phase - (float)seg;         // 0..1 within segment
+  uint32_t baseColor;
+  if (seg == 0) {
+    baseColor = lerpColor(IDLE_COLOR_A, IDLE_COLOR_B, ft);
+  } else if (seg == 1) {
+    baseColor = lerpColor(IDLE_COLOR_B, IDLE_COLOR_C, ft);
+  } else {
+    baseColor = lerpColor(IDLE_COLOR_C, IDLE_COLOR_A, ft);
+  }
+
+  for (int i = 0; i < N; ++i) {
+    float d = fabsf((float)i - center);
+    d = min(d, (float)N - d);
+    float w = 0.0f;
+    if (d < radius) {
+      float x = d / radius;
+      w = 0.5f * (1.0f + cosf(x * PI));
+    }
+    float k = breathe * w;
+    uint32_t c = scaleColor(baseColor, k);
+    s.setPixelColor(i, c);
+  }
+  s.show();
+}
+// ---- End Calm Idle Renderer (added) ----
 
 // LED CONTROL FUNCTIONS
 
