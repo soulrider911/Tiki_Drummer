@@ -61,13 +61,13 @@ DFRobotDFPlayerMini player;
 
 // NeoPixel setup - primary drum strip on pin 6
 #define NEOPIXEL_PIN 6
-#define NUM_PIXELS 19
+#define NUM_PIXELS 16 //19 for Original
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 // Ambient NeoPixel strip (separate) - change pin/count as needed
 #define AMBIENT_PIN 5
-#define NUM_PIXELS_AMBIENT 32
-#define AMBIENT_BRIGHTNESS 120         // 0-255
+#define NUM_PIXELS_AMBIENT 28
+#define AMBIENT_BRIGHTNESS 200       // 0-255
 #define AMBIENT_COLOR_R 255           // Soft warm white by default
 #define AMBIENT_COLOR_G 180
 #define AMBIENT_COLOR_B 60
@@ -99,18 +99,18 @@ float fadeStep = 0.02; // How much to increase brightness each frame
 // ---- Calm Idle Configuration (added) ----
 // Deep ocean + teal palette
 uint32_t IDLE_COLOR_A = 0xDE35E6; // deep ocean
-uint32_t IDLE_COLOR_B = 0x00E6CF; // teal
-uint32_t IDLE_COLOR_C = 0xff6e00; // orange
+uint32_t IDLE_COLOR_B = 0xff6e00; // orange
+uint32_t IDLE_COLOR_C = 0xd000ff; // purple
 
 // Periods (ms)
 const uint32_t IDLE_BREATHE_MS = 10000;   // overall “breathing” cycle
-const uint32_t IDLE_DRIFT_MS   = 18000;  // how long the band takes to loop end-to-end
+const uint32_t IDLE_DRIFT_MS   = 10000;  // how long the band takes to loop end-to-end
 
 // Band softness/radius (as fraction of strip length)
-const float    IDLE_BAND_WIDTH = 0.35f;  // 0.2..0.5 works well; larger = softer, wider glow
+const float    IDLE_BAND_WIDTH = 0.4f;  // 0.2..0.5 works well; larger = softer, wider glow
 
 // Floor/ceiling brightness (0..1) to keep it calm
-const float    IDLE_MIN_BRIGHT = 0.4f;
+const float    IDLE_MIN_BRIGHT = 0.6f;
 const float    IDLE_MAX_BRIGHT = 0.9f;
 
 unsigned long  idleStartMillis = 0;
