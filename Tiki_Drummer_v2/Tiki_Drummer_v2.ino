@@ -67,17 +67,103 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + 
 // Ambient NeoPixel strip (separate) - change pin/count as needed
 #define AMBIENT_PIN 5
 #define NUM_PIXELS_AMBIENT 28
-#define AMBIENT_BRIGHTNESS 200       // 0-255
+#define AMBIENT_BRIGHTNESS 150       // 0-255
 #define AMBIENT_COLOR_R 255           // Soft warm white by default
 #define AMBIENT_COLOR_G 180
 #define AMBIENT_COLOR_B 60
 Adafruit_NeoPixel ambientStrip = Adafruit_NeoPixel(NUM_PIXELS_AMBIENT, AMBIENT_PIN, NEO_GRB + NEO_KHZ800);
+
+// Use ambient LED count for internal rain effect buffers
+#define LED_COUNT NUM_PIXELS_AMBIENT
+
+// ===== Internal frame buffer for ambient rain effect =====
+static uint8_t fr[LED_COUNT], fg[LED_COUNT], fb[LED_COUNT]; // per-pixel RGB for ambient
+
+// --- tiny helpers ---
+static inline uint8_t qadd8(uint8_t a, uint8_t b) { uint16_t t = a + b; return (t > 255) ? 255 : (uint8_t)t; }
+static inline uint8_t scale8(uint8_t v, uint8_t s) { return (uint16_t)v * (uint16_t)s / 255; }
+
+// Random blue/cyan from a soothing palette
+static void pickBlueCyan(uint8_t &r, uint8_t &g, uint8_t &b) {
+  uint8_t pick = random(0, 100);
+  if (pick < 55) {                 // cyan-ish
+    r = 0;
+    g = 180 + random(0, 76);       // 180–255
+    b = 190 + random(0, 66);       // 190–255
+  } else {                         // blue-ish with touch of green
+    r = 0;
+    g = 30 + random(0, 60);        // 30–89
+    b = 190 + random(0, 66);       // 190–255
+  }
+}
+
+// Fade the whole frame by 'fadeBy' (like WLED's fade-out)
+static void fadeAll(uint8_t fadeBy) {
+  uint8_t keep = 255 - fadeBy;     // 255=keep, 0=drop to black
+  for (uint16_t i = 0; i < LED_COUNT; i++) {
+    fr[i] = scale8(fr[i], keep);
+    fg[i] = scale8(fg[i], keep);
+    fb[i] = scale8(fb[i], keep);
+  }
+}
+
+// Optional background floor so it never looks "empty"
+static void applyAmbientFloor(uint8_t floorLevel) {
+  if (!floorLevel) return;
+  // very dim teal floor
+  uint8_t baseG = floorLevel;                           // gentle green
+  uint8_t baseB = qadd8(floorLevel, floorLevel/2);      // slightly more blue
+  for (uint16_t i = 0; i < LED_COUNT; i++) {
+    if ((uint16_t)fr[i] + fg[i] + fb[i] < floorLevel) {
+      fr[i] = 0;
+      fg[i] = baseG;
+      fb[i] = baseB;
+    }
+  }
+}
+
+// Spawn a few single-pixel twinkles (WLED-style random pops)
+static void spawnTwinkles(uint8_t density, uint8_t minDarkSum) {
+  // Attempts scale with strip length; each attempt spawns with prob ~ density
+  uint8_t attempts = LED_COUNT / 6;
+  if (attempts < 1) attempts = 1;  // clamp to at least 1
+  for (uint8_t k = 0; k < attempts; k++) {
+    if (random(0, 256) < density) {
+      uint16_t i = random(0, LED_COUNT);
+      // Prefer darker spots so twinkles appear distributed
+      if ((uint16_t)fr[i] + fg[i] + fb[i] < minDarkSum) {
+        uint8_t r, g, b; pickBlueCyan(r, g, b);
+        // Random initial brightness (soft cap to avoid harsh whites)
+        uint8_t br = 160 + random(0, 96); // 160–255
+        r = scale8(r, br);
+        g = scale8(g, br);
+        b = scale8(b, br);
+        fr[i] = qadd8(fr[i], r);
+        fg[i] = qadd8(fg[i], g);
+        fb[i] = qadd8(fb[i], b);
+      }
+    }
+  }
+}
+
+// Draw to ambientStrip using buffers
+void ColorTwinklesBlueCyanTick(uint8_t fadeBy, uint8_t spawnDensity, uint8_t minDarkSum, uint8_t floorLevel) {
+  fadeAll(fadeBy);
+  spawnTwinkles(spawnDensity, minDarkSum);
+  applyAmbientFloor(floorLevel);
+  for (uint16_t i = 0; i < LED_COUNT; i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(fr[i], fg[i], fb[i]));
+  }
+  ambientStrip.show();
+}
 
 // LED diode setup - pin 3 for eyes indicator
 #define LED_EYES 3
 
 // Button setup - pin 2 for mode switching
 #define BUTTON_PIN 2
+// Servo signal pin (hardware wiring uses pin 7)
+#define SERVO_PIN 7
 Button2 button;
 
 // Mode control variables
@@ -141,12 +227,25 @@ int ledSpeed1stHalf = 4;           // LED color cycling speed (first half)
 int ledSpeed2ndHalf = 1;           // LED color cycling speed (second half)
 
 // Lightning effect timing
-int lightningFlashes = 40;         // Number of lightning flashes
+int lightningFlashes = 50;         // Number of lightning flashes
 int lightningOnTime = 100;         // How long each flash stays on (milliseconds)
 int lightningOffTime = 10;         // Brief pause between flashes (milliseconds)
 
 // Finale timing
 int finaleArmDelay = 1000;         // How long to wait for arm to reach final position
+int postLightningPause = 7000;     // Pause after final lightning before cleanup (ms)
+int postLightningTwinkleGap = 1500; // Gap before ambient twinkles begin (ms)
+
+// Post-lightning rain timing state
+unsigned long rainStartMillis = 0; // Set at start of post-lightning pause
+
+// Rain twinkle parameters (ambient strip)
+uint8_t rainTwinkleFadeBy = 70;     // Higher = faster fade
+uint8_t rainTwinkleDensity = 130;   // 0..255 spawn probability per attempt
+uint8_t rainAmbientFloor   = 12;    // 0 for off, small (e.g., 12-20) for faint floor
+
+// Forward declaration for ambient rain effect used during post-lightning pause
+void rainAmbientStep();
 
 // Idle animation function - lights up pixels one at a time with fade-in
 void updateIdleAnimation() {
@@ -181,6 +280,7 @@ void cleanupShow() {
   // Detach servo to stop any movement
   if (drummerServo.attached()) {
     drummerServo.detach();
+  pinMode(SERVO_PIN, INPUT);
   }
   delay(100); // Give servo time to detach
   
@@ -236,10 +336,16 @@ void setup() {
 }
   ambientStrip.show();
   
+  // Seed randomness and clear rain effect frame buffers
+  randomSeed(analogRead(A0));
+  memset(fr, 0, sizeof(fr));
+  memset(fg, 0, sizeof(fg));
+  memset(fb, 0, sizeof(fb));
+  
   // Initialize serial communication for DFPlayer Mini
   softwareSerial.begin(9600);
   player.begin(softwareSerial);
-  player.volume(25); // Set volume to maximum (0 to 30)
+  player.volume(24); // Set volume to maximum (0 to 30)
   
   // Wait 2 seconds after power on
   delay(2000);
@@ -388,6 +494,13 @@ void runTikiDrummersShow() {
   }
   ambientStrip.show();
   
+  // Before lightning: ensure servo is fully detached and its signal line isn't floating
+  if (drummerServo.attached()) {
+    drummerServo.detach();
+    delay(50);
+  }
+  pinMode(SERVO_PIN, INPUT); // avoid noise on servo signal during power/LED surges
+  
   // LIGHTNING EFFECT
   for (int x = 0; x < lightningFlashes && showRunning; x++) { // Use timing variable
     if (!showRunning) { cleanupShow(); return; } // Check if show was stopped
@@ -401,7 +514,8 @@ void runTikiDrummersShow() {
   if (!showRunning) { cleanupShow(); return; }
   
   // FINALE
-  // Set drummer arm to final position
+  // Reattach and set drummer arm to final position
+  drummerServo.attach(SERVO_PIN);
   drummerServo.write(97);
   
   // Interruptible delay for finale (finer granularity for faster stop)
@@ -419,8 +533,22 @@ void runTikiDrummersShow() {
   // Turn off eyes LED
   digitalWrite(LED_EYES, LOW);
   
+  // Keep ambient state through the gap; twinkles will start after the configured delay
+  // Mark start time of post-lightning pause for twinkle gap control
+  rainStartMillis = millis();
+  
+  // Pause after lightning before cleanup (interruptible)
+  for (int i = 0; i < postLightningPause && showRunning; i += 20) {
+    // Animate rain twinkles on the ambient strip during the pause
+    rainAmbientStep();
+    delay(20);
+    button.loop(); // Keep button responsive during pause
+  }
+  if (!showRunning) { cleanupShow(); return; }
+  
   // Show completed naturally, clean up and return to idle mode
   cleanupShow();
+ 
 }
 
 void stopShow() {
@@ -438,12 +566,14 @@ void renderCalmIdle(Adafruit_NeoPixel &s) {
   const float tDrift   = fmodf((now - idleStartMillis), (float)IDLE_DRIFT_MS)   / (float)IDLE_DRIFT_MS;   // 0..1
 
   const float breathe = lerp(IDLE_MIN_BRIGHT, IDLE_MAX_BRIGHT, easeInOutSine(tBreathe));
-  const float center = tDrift * (N - 1);
+  // Center should traverse the full ring length [0..N) to avoid a tiny jump at wrap
+  const float center = tDrift * (float)N;
   const float radius = max(1.0f, IDLE_BAND_WIDTH * (float)N);
 
   // Tri-color palette cycle: A -> B -> C -> A using the breathing phase
   float phase = tBreathe * 3.0f;         // 0..3
-  int seg = (int)phase;                  // 0,1,2
+  int seg = (int)phase;                  // 0,1,2, (rarely 3 due to float rounding)
+  if (seg >= 3) seg = 0;                 // ensure seamless wrap
   float ft = phase - (float)seg;         // 0..1 within segment
   uint32_t baseColor;
   if (seg == 0) {
@@ -488,6 +618,30 @@ void lightning(uint32_t c, uint8_t wait) {
   }
   strip.show();
   delay(wait);
+}
+
+// WLED-style blue/cyan twinkles for ambient strip
+static void ColorTwinklesBlueCyanTick(uint8_t fadeBy, uint8_t density, uint8_t ambientFloor) {
+  fadeAll(fadeBy);               // global fade
+  spawnTwinkles(density, 70);    // raise minDarkSum for more “pepper”
+  applyAmbientFloor(ambientFloor);
+
+  // Push buffer to ambient LEDs
+  for (uint16_t i = 0; i < LED_COUNT; i++) {
+    ambientStrip.setPixelColor(i, ambientStrip.Color(fr[i], fg[i], fb[i]));
+  }
+  ambientStrip.show();
+}
+
+// Ambient rain twinkle effect step using user's algorithm
+void rainAmbientStep() {
+  // During the configured gap, don't touch/show ambient at all to avoid a pre-gap fade/flicker
+  unsigned long now = millis();
+  if (now - rainStartMillis < (unsigned long)postLightningTwinkleGap) {
+    return; // keep whatever was on the ambient strip intact
+  }
+  // After the gap, run the twinkle tick normally
+  ColorTwinklesBlueCyanTick(/*fadeBy*/ rainTwinkleFadeBy, /*density*/ rainTwinkleDensity, /*ambientFloor*/ rainAmbientFloor);
 }
 
 // Chant step - single step of color cycling for integration with drummer servo movement
